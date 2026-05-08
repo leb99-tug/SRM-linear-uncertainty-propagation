@@ -579,7 +579,7 @@ class uSRM:
 
             A.append(A_);  B.append(B_);  k.append(k_)
             Wa.append(Wa_);  Wb.append(Wb_)
-            print(f'Frequency: {f * 1e-9:.2f} GHz ... DONE!')
+            #print(f'Frequency: {f * 1e-9:.2f} GHz ... DONE!')
 
         self.A  = np.array(A)
         self.B  = np.array(B)
@@ -681,7 +681,7 @@ class uSRM:
 
             A.append(A_);  B.append(B_);  k.append(k_)
             Wa.append(Wa_);  Wb.append(Wb_)
-            print(f'Frequency: {f * 1e-9:.2f} GHz ... DONE!')
+            #print(f'Frequency: {f * 1e-9:.2f} GHz ... DONE!')
 
         self.A  = np.array(A)
         self.B  = np.array(B)
