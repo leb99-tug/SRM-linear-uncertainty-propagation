@@ -55,6 +55,43 @@ def extract_table(tex_file: str) -> np.ndarray:
     return _parse_longtable(tex_file)
 
 
+def interpolate_to_freq(
+    values: np.ndarray,
+    src_freq: np.ndarray,
+    target_freq,
+) -> np.ndarray:
+    """
+    Interpolate ``values`` from its own frequency grid onto ``target_freq``.
+
+    Parameters
+    ----------
+    values : np.ndarray, shape (N,) or (N, M)
+        Data to interpolate.  Column 0 must NOT be the frequency column —
+        pass only the value columns (e.g. ``noise_data[:, 1]`` or
+        ``noise_data[:, 1:5]``).
+    src_freq : np.ndarray, shape (N,)
+        Frequencies in Hz corresponding to the rows of *values*
+        (typically ``noise_data[:, 0]``).
+    target_freq : skrf.Frequency or np.ndarray
+        Target frequency grid.  Accepts a ``skrf.Frequency`` object
+        (``freq`` in the notebook) or a plain Hz array.
+
+    Returns
+    -------
+    np.ndarray, shape (K,) or (K, M)
+        Values interpolated onto *target_freq*, same dtype as *values*.
+    """
+    f_target = target_freq.f if hasattr(target_freq, "f") else np.asarray(target_freq)
+
+    values = np.asarray(values)
+    if values.ndim == 1:
+        return np.interp(f_target, src_freq, values)
+
+    return np.column_stack(
+        [np.interp(f_target, src_freq, values[:, col]) for col in range(values.shape[1])]
+    )
+
+
 def extract_switch_terms(tex_file: str) -> tuple[rf.Network, rf.Network]:
     """
     Extract forward/reverse switch terms from a Thru_with_switch.tex longtable.

@@ -1,7 +1,7 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from extract_latex_table import extract_table
+from aux_functions import extract_table
 
 data = extract_table("Uncertainty_Contributor_Data/Noise_Floor.tex")
 
