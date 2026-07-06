@@ -1,32 +1,31 @@
 import re
+
 import numpy as np
+import skrf as rf
 
 
-def extract_noise_floor_table(tex_file: str) -> np.ndarray:
+def _parse_number(cell: str) -> float:
     """
-    Extract the numeric data table from a Noise_Floor.tex longtable into a numpy array.
+    Parse a European-formatted number cell from these .tex table exports.
 
-    The .tex file uses European decimal notation (comma as separator, e.g. 10,000e+06).
-    Data rows start after the \\endhead marker and end before \\end{longtable}.
+    Thousands are grouped with a LaTeX thin space + comma (``\\,``, e.g.
+    ``26\\,000,000`` in the frequency column) and the decimal separator is
+    a plain comma.
+    """
+    cell = cell.strip().replace("\\,", "")
+    return float(cell.replace(",", "."))
 
-    Returns
-    -------
-    np.ndarray, shape (n_frequencies, 37)
-        Column 0  : frequency in Hz
-        Columns 1-4   : Noise Floor NL Sx (S1..S4) / dB
-        Columns 5-8   : Trace Noise NH Sx Mag / dB
-        Columns 9-12  : Trace Noise NH Sx Phase / deg
-        Columns 13-16 : Noise Floor NL Test Rcv bx / dBm
-        Columns 17-20 : Trace Noise NH Test Rcv bx Mag / dB
-        Columns 21-24 : Trace Noise NH Test Rcv bx Phase / deg
-        Columns 25-28 : Noise Floor NL Ref Rcv ax / dBm
-        Columns 29-32 : Trace Noise NH Ref Rcv ax Mag / dB
-        Columns 33-36 : Trace Noise NH Ref Rcv ax Phase / deg
+
+def _parse_longtable(tex_file: str) -> np.ndarray:
+    """
+    Parse the numeric body of a ``longtable`` .tex export into a numpy array.
+
+    Data rows start after the \\endhead marker and end before
+    \\end{longtable}. Each row is ``&``-separated and ends with ``\\\\``.
     """
     with open(tex_file, encoding="utf-8") as f:
         content = f.read()
 
-    # Isolate the body after \endhead and before \end{longtable}
     body_match = re.search(r"\\endhead(.*?)\\end\{longtable\}", content, re.DOTALL)
     if body_match is None:
         raise ValueError("Could not find \\endhead ... \\end{longtable} in the file.")
@@ -39,9 +38,50 @@ def extract_noise_floor_table(tex_file: str) -> np.ndarray:
         if not line.endswith("\\\\"):
             continue
         line = line[:-2]  # strip trailing \\
-        cells = [c.strip() for c in line.split("&")]
-        # Convert European decimal comma to dot, then parse
-        values = [float(c.replace(",", ".")) for c in cells]
-        rows.append(values)
+        cells = line.split("&")
+        rows.append([_parse_number(c) for c in cells])
 
     return np.array(rows)
+
+
+def extract_table(tex_file: str) -> np.ndarray:
+    """
+    Extract the numeric data table from a Noise_Floor.tex longtable into a numpy array.
+
+    The .tex file uses European decimal notation (comma as separator, e.g. 10,000e+06).
+    Data rows start after the \\endhead marker and end before \\end{longtable}.
+
+    """
+    return _parse_longtable(tex_file)
+
+
+def extract_switch_terms(tex_file: str) -> tuple[rf.Network, rf.Network]:
+    """
+    Extract forward/reverse switch terms from a Thru_with_switch.tex longtable.
+
+    The table holds S1,1 / S1,2 / S2,1 / S2,2 (Mag, Phase/deg) followed by the
+    raw switch-term ratios ``a2/b2_p1`` (source at port 1, i.e. the forward
+    switch term) and ``a1/b1_p2`` (source at port 2, i.e. the reverse switch
+    term), each as a Mag/Phase(deg) pair. Frequency is in MHz.
+
+    Returns
+    -------
+    forward, reverse : skrf.Network
+        1-port-like networks whose ``s`` holds the complex switch-term ratio
+        vs. frequency, e.g. for use as ``switch_term=(forward, reverse)`` in
+        SRM/ALTOS.
+    """
+    table = _parse_longtable(tex_file)
+
+    freq = rf.Frequency.from_f(table[:, 0], unit="MHz")
+
+    def _to_complex(mag_col: int, phase_col: int) -> np.ndarray:
+        return table[:, mag_col] * np.exp(1j * np.deg2rad(table[:, phase_col]))
+
+    forward = _to_complex(9, 10)   # a2/b2_p1
+    reverse = _to_complex(11, 12)  # a1/b1_p2
+
+    forward_ntwk = rf.Network(frequency=freq, s=forward.reshape(-1, 1, 1), name="switch_term_forward")
+    reverse_ntwk = rf.Network(frequency=freq, s=reverse.reshape(-1, 1, 1), name="switch_term_reverse")
+
+    return forward_ntwk, reverse_ntwk

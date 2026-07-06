@@ -1,9 +1,9 @@
 import matplotlib.pyplot as plt
 import numpy as np
 
-from extract_latex_table import extract_noise_floor_table
+from extract_latex_table import extract_table
 
-data = extract_noise_floor_table("Uncertainty_Contributor_Data/Noise_Floor.tex")
+data = extract_table("Uncertainty_Contributor_Data/Noise_Floor.tex")
 
 freq_GHz = data[:, 0] / 1e9
 
