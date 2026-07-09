@@ -312,6 +312,7 @@ def create_attenuator(att_db=40.0, frequency=None, z0=50.0, name=None):
     a  = 10 ** (-abs(att_db) / 20)          # linear |S21| = |S12|
     nf = len(frequency)
     s  = np.zeros((nf, 2, 2), dtype=complex)
-    s[:, 0, 1] = s[:, 1, 0] = a             # transmission, reciprocal
+    s[:, 0, 1] = s[:, 1, 0] = a  # transmission, reciprocal
+    s[:, 0, 0] = s[:, 1, 1] = 0.000001
     return rf.Network(frequency=frequency, s=s, z0=z0,
                       name=name or f'{att_db:.0f} dB attenuator')
