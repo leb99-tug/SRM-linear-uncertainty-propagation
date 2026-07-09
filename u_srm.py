@@ -753,26 +753,72 @@ class uSRM:
         S_cal = S_cal.squeeze()
         return (rf.Network(frequency=NW.frequency, s=munc.get_value(S_cal)),
                 munc.get_stdunc(S_cal))
-    
-    def u_apply_cal_unc(self, NW, left=True):
+                
+    def u_apply_cal_unc(self, NW, cov=None, left=True):
         """
-        Apply calibration (uncertain) to a 1- or 2-port network.
+        Apply the (uncertain) calibration to a 1- or 2-port network, optionally
+        accounting for the measurement uncertainty of that network.
+
+        Parameters
+        ----------
+        NW : :class:`~skrf.network.Network`
+            Raw (uncorrected) measurement.
+        cov : ndarray, optional
+            Covariance of NW's S-parameters. With N uncertain S-parameters per
+            frequency (N = nports**2, i.e. N = 1 for a one-port, N = 4 for a
+            two-port) it is forwarded to ``munc.ucomplex(array)`` and must follow
+            that constructor's layout for the C-order-flattened S-vector
+            [S11, S12, S21, S22]; metas stacks the real parts before the imaginary
+            parts -> [Re(S11)..Re(S22), Im(S11)..Im(S22)], shape (2N, 2N).
+            Accepted forms:
+            * (2N, 2N)         -> identical, frequency-independent uncertainty
+            * (nfreq, 2N, 2N)  -> one covariance per frequency point
+            If None (default) NW is treated as error-free.
+        left : bool
+            For a one-port, return S11 (True) or S22 (False) of the embedded
+            two-port.
 
         Returns
         -------
         NW_cal : :class:`~skrf.network.Network` – calibrated network (mean values)
-        unc    : ndarray – standard uncertainty of S-parameters
+        unc    : ndarray – standard uncertainty of the calibrated S-parameters,
+                combining calibration and (if `cov` given) network uncertainty.
         """
-        nports = NW.s.shape[-1] if hasattr(NW, 's') else 2
-        if nports < 2:
-            NW = rf.two_port_reflect(NW)
+        nports    = NW.s.shape[-1] if hasattr(NW, 's') else 2
+        uncertain = cov is not None
+        one       = munc.ucomplex(complex(1.0)) if uncertain else 1.0
+
+        # covariance slice for frequency i  (supports (2N,2N) and (F,2N,2N))
+        def _cov_at(i):
+            if cov is None:
+                return None
+            c = np.asarray(cov)
+            return c if c.ndim == 2 else c[i]
+
+        # (possibly uncertain) 2x2 S-matrix at frequency i
+        def _s_at(i):
+            ci = _cov_at(i)
+            if nports < 2:                       # embed 1-port -> two_port_reflect form
+                g = complex(NW.s[i, 0, 0])
+                if ci is None:
+                    return np.array([[g, 0j], [0j, g]], dtype=complex)
+                gi = munc.ucomplex(g, covariance=ci)
+                z  = munc.ucomplex(complex(0))
+                return np.array([[gi, z], [z, gi]], dtype=object)  # same object -> fully correlated
+            else:                                # 2-port
+                if ci is None:
+                    return NW.s[i]
+                return munc.ucomplexarray(NW.s[i].flatten(), covariance=ci).reshape(2, 2)
+
+        s_list = [_s_at(i) for i in range(NW.s.shape[0])]
 
         S_cal = []
-        for x, k, s, swf, swb in zip(self.X, self.k, NW.s,
-                                      self.switch_term_fw, self.switch_term_bw):
+        for x, k, s, swf, swb in zip(self.X, self.k, s_list,
+                                    self.switch_term_fw, self.switch_term_bw):
             s    = correct_switch_term(s, swf, swb) if np.any([swf, swb]) else s
             xinv = munc.ulinalg.inv(x)
-            M_   = np.array([-s[0, 0] * s[1, 1] + s[0, 1] * s[1, 0], -s[1, 1], s[0, 0], 1])
+            M_   = np.array([-s[0, 0] * s[1, 1] + s[0, 1] * s[1, 0],
+                            -s[1, 1], s[0, 0], one])
             T_   = munc.ulinalg.dot(xinv, M_)
             s21  = k * s[1, 0] / T_[-1] + np.finfo(float).eps
             T_   = T_ / T_[-1]
@@ -784,7 +830,6 @@ class uSRM:
         S_cal = S_cal.squeeze()
         return (rf.Network(frequency=NW.frequency, s=munc.get_value(S_cal)),
                 munc.get_stdunc(S_cal))
-    
     
     # -----------------------------------------------------------------------
     # Error coefficients and derived quantities

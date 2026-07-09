@@ -300,3 +300,18 @@ def forward_two_port(contribs_raw, M_meas_S):
         T = T @ s2t(cS)
     T = T @ s2t(M_meas_S)
     return t2s(T)
+
+def create_attenuator(att_db=40.0, frequency=None, z0=50.0, name=None):
+    """Ideal matched attenuator as an skrf Network.
+
+    att_db : attenuation in dB (positive number; 40 -> -40 dB / |S21|=0.01)
+    frequency : rf.Frequency or None (defaults to 0-40 GHz, 1001 pts)
+    """
+    if frequency is None:
+        frequency = rf.Frequency(0, 40, 1001, 'ghz')
+    a  = 10 ** (-abs(att_db) / 20)          # linear |S21| = |S12|
+    nf = len(frequency)
+    s  = np.zeros((nf, 2, 2), dtype=complex)
+    s[:, 0, 1] = s[:, 1, 0] = a             # transmission, reciprocal
+    return rf.Network(frequency=frequency, s=s, z0=z0,
+                      name=name or f'{att_db:.0f} dB attenuator')
