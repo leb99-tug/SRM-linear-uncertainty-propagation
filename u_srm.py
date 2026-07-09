@@ -753,7 +753,39 @@ class uSRM:
         S_cal = S_cal.squeeze()
         return (rf.Network(frequency=NW.frequency, s=munc.get_value(S_cal)),
                 munc.get_stdunc(S_cal))
+    
+    def u_apply_cal_unc(self, NW, left=True):
+        """
+        Apply calibration (uncertain) to a 1- or 2-port network.
 
+        Returns
+        -------
+        NW_cal : :class:`~skrf.network.Network` – calibrated network (mean values)
+        unc    : ndarray – standard uncertainty of S-parameters
+        """
+        nports = NW.s.shape[-1] if hasattr(NW, 's') else 2
+        if nports < 2:
+            NW = rf.two_port_reflect(NW)
+
+        S_cal = []
+        for x, k, s, swf, swb in zip(self.X, self.k, NW.s,
+                                      self.switch_term_fw, self.switch_term_bw):
+            s    = correct_switch_term(s, swf, swb) if np.any([swf, swb]) else s
+            xinv = munc.ulinalg.inv(x)
+            M_   = np.array([-s[0, 0] * s[1, 1] + s[0, 1] * s[1, 0], -s[1, 1], s[0, 0], 1])
+            T_   = munc.ulinalg.dot(xinv, M_)
+            s21  = k * s[1, 0] / T_[-1] + np.finfo(float).eps
+            T_   = T_ / T_[-1]
+            S_cal.append([[T_[2], (T_[0] - T_[2] * T_[1]) / s21], [s21, -T_[1]]])
+
+        S_cal = np.array(S_cal).squeeze()
+        if nports < 2:
+            S_cal = S_cal[:, 0, 0] if left else S_cal[:, 1, 1]
+        S_cal = S_cal.squeeze()
+        return (rf.Network(frequency=NW.frequency, s=munc.get_value(S_cal)),
+                munc.get_stdunc(S_cal))
+    
+    
     # -----------------------------------------------------------------------
     # Error coefficients and derived quantities
     # -----------------------------------------------------------------------
