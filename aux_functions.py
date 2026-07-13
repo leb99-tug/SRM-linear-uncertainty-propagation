@@ -254,21 +254,21 @@ def cov_of_scalar(z_uc):
 
 def forward_one_port(contribs_raw, gamma_meas, port="A"):
     """
-    Vorwaerts-Propagation fuer eine EINTOR-Rohmessung (Reflexion).
-    Belastet die gemessene Reflexion durch die Roh-Plane-Contributor:
- 
+    Forward propagation for a ONE-PORT raw measurement (reflection).
+    Loads the measured reflection through the raw-plane contributors:
+
         Port A:  Gamma'_raw = G11 + G12*G21*gamma / (1 - G22*gamma)
         Port B:  Gamma'_raw = G22 + G12*G21*gamma / (1 - G11*gamma)
         G = t2s( s2t(N) @ s2t(L) @ ... )
- 
-    contribs_raw : Liste (2,2) ucomplex S-Matrizen [N, L, ...] (nominal Thru).
-    gamma_meas   : gemessene Reflexion -- komplex (nominal) oder ucomplex.
-    port         : "A" (S11) oder "B" (S22).  Port B liest die andere Seite des
-                   Contributor-Zweitors ab -- aequivalent zu einem gespiegelten
-                   P @ N @ P, relevant bei asymmetrischem N (Noise-Floor/Trace).
- 
-    Rueckgabe: skalare ucomplex Gamma'_raw.  Kovarianz via cov_of_scalar -> U_F.
-    Nominell (Contributor = Thru) ist Gamma'_raw = gamma_meas fuer beide Ports.
+
+    contribs_raw : list of (2,2) ucomplex S-matrices [N, L, ...] (nominally thru).
+    gamma_meas   : measured reflection -- complex (nominal) or ucomplex.
+    port         : "A" (S11) or "B" (S22).  Port B reads the other side of the
+                   contributor two-port -- equivalent to a mirrored
+                   P @ N @ P, relevant for asymmetric N (noise floor/trace).
+
+    Returns: scalar ucomplex Gamma'_raw.  Covariance via cov_of_scalar -> U_F.
+    Nominally (contributor = thru) Gamma'_raw = gamma_meas for both ports.
     """
     G = s2t(contribs_raw[0])
     for cS in contribs_raw[1:]:
@@ -283,17 +283,17 @@ def forward_one_port(contribs_raw, gamma_meas, port="A"):
 
 def forward_two_port(contribs_raw, M_meas_S):
     """
-    Vorwaerts-Propagation fuer eine ZWEITOR-Rohmessung.
- 
+    Forward propagation for a TWO-PORT raw measurement.
+
         M'_raw = t2s( s2t(N) @ s2t(L) @ ... @ s2t(M_meas) )
- 
-    contribs_raw : Liste (2,2) ucomplex S-Matrizen [N, L, ...] (nominal Thru),
-                   Reihenfolge Instrument-Seite -> Messung.
-    M_meas_S     : (2,2) gemessene S-Matrix -- komplex (nominal) ODER ucomplex,
-                   falls die Messung selbst schon eine Kovarianz traegt.
- 
-    Rueckgabe: (2,2) ucomplex M'_raw.  Kovarianz via cov_of_2x2 -> U_F.
-    Nominell (Contributor = Thru) ist M'_raw = M_meas; nur die Kovarianz waechst.
+
+    contribs_raw : list of (2,2) ucomplex S-matrices [N, L, ...] (nominally thru),
+                   ordered instrument side -> measurement.
+    M_meas_S     : (2,2) measured S-matrix -- complex (nominal) OR ucomplex,
+                   if the measurement itself already carries a covariance.
+
+    Returns: (2,2) ucomplex M'_raw.  Covariance via cov_of_2x2 -> U_F.
+    Nominally (contributor = thru) M'_raw = M_meas; only the covariance grows.
     """
     T = s2t(contribs_raw[0])
     for cS in contribs_raw[1:]:
