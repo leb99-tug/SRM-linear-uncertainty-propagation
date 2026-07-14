@@ -281,25 +281,32 @@ def forward_one_port(contribs_raw, gamma_meas, port="A"):
     else:
         raise ValueError("port must be 'A' or 'B'")
 
-def forward_two_port(contribs_raw, M_meas_S):
+def forward_two_port(contribs_A, contribs_B, M_meas_S):
     """
-    Forward propagation for a TWO-PORT raw measurement.
+    Forward propagation for a TWO-PORT raw measurement, contributors on BOTH
+    ports and the measured two-port in the middle:
 
-        M'_raw = t2s( s2t(N) @ s2t(L) @ ... @ s2t(M_meas) )
+        M'_raw = t2s( [prod contribs_A] @ s2t(M_meas) @ [prod contribs_B] )
 
-    contribs_raw : list of (2,2) ucomplex S-matrices [N, L, ...] (nominally thru),
-                   ordered instrument side -> measurement.
-    M_meas_S     : (2,2) measured S-matrix -- complex (nominal) OR ucomplex,
-                   if the measurement itself already carries a covariance.
+    contribs_A : list of (2,2) ucomplex S-matrices for port A, ordered
+        instrument side -> measurement (e.g. [N_A, L_A, ...], nominally thru).
+    contribs_B : list of (2,2) ucomplex S-matrices for port B, ordered
+        measurement -> instrument side (the physical mirror of A). Port-B
+        contributors must be independently instantiated (no shared Metas input
+        nodes with A), and any mirror box needs the caller's Db[::-1, ::-1] flip.
+    M_meas_S   : (2,2) measured S-matrix -- complex (nominal) OR ucomplex if the
+        measurement already carries a covariance.
 
-    Returns: (2,2) ucomplex M'_raw.  Covariance via cov_of_2x2 -> U_F.
-    Nominally (contributor = thru) M'_raw = M_meas; only the covariance grows.
+    Returns: (2,2) ucomplex M'_raw. Nominally (contributor = thru) == M_meas;
+    only the covariance grows.
     """
-    T = s2t(contribs_raw[0])
-    for cS in contribs_raw[1:]:
-        T = T @ s2t(cS)
-    T = T @ s2t(M_meas_S)
-    return t2s(T)
+    T = s2t(M_meas_S).astype(object)             # T-domain, holds ucomplex
+    for cS in reversed(contribs_A):
+        T = s2t(cS) @ T                          # port A cascades in from the left
+    for cS in contribs_B:
+        T = T @ s2t(cS)                          # port B cascades out to the right
+    M_raw = t2s(T)
+    return M_raw
 
 def create_attenuator(att_db=40.0, frequency=None, z0=50.0, name=None):
     """Ideal matched attenuator as an skrf Network.
