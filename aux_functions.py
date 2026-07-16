@@ -175,6 +175,78 @@ def cov_of_2x2(M_uc):
     return np.asarray(munc.get_covariance(flat))
 
 
+def write_cti(ntwk, cov, filename, name="DATA"):
+    """
+    Write an rf.Network together with its per-frequency covariance matrix
+    to a METAS-VNA-Tools-style CITI file (see Reference_Standards/*.cti and
+    METAS_SOLR_De_Emb/*.cti).
+
+    For every S-parameter S[i,j] the file stores the nominal value (Re, Im)
+    plus a companion U[i,j] block holding the standard uncertainties of
+    Re(S[i,j]) and Im(S[i,j]) -- the sqrt of the corresponding diagonal
+    entries of ``cov``. The CITI U-block format has no room for
+    correlations, so any covariance between different S-parameters, or
+    between Re/Im of the same one, is dropped on write.
+
+    Parameters
+    ----------
+    ntwk : skrf.Network
+        Network to write; ``ntwk.f`` (Hz) and ``ntwk.s`` (nfreq, n, n)
+        supply the nominal values.
+    cov : array_like, shape (nfreq, 2*n*n, 2*n*n)
+        Real-valued covariance of the column-major-flattened S-matrix
+        [Re(S[0,0]), Im(S[0,0]), Re(S[1,0]), Im(S[1,0]), ...] at each
+        frequency point -- the same convention as :func:`cov_of_2x2`
+        (generalised here to n ports).
+    filename : str or path-like
+    name : str
+        CITI NAME field.
+    """
+    freq = ntwk.f
+    s = ntwk.s
+    nfreq, n, _ = s.shape
+
+    cov = np.asarray(cov)
+    if np.iscomplexobj(cov):
+        if not np.allclose(cov.imag, 0):
+            raise ValueError("cov must be real-valued (a covariance matrix cannot have an imaginary part)")
+        cov = cov.real
+    expected_shape = (nfreq, 2 * n * n, 2 * n * n)
+    if cov.shape != expected_shape:
+        raise ValueError(f"cov must have shape {expected_shape}, got {cov.shape}")
+
+    def fmt(x):
+        mantissa, exp = f"{x:.12e}".split("e")
+        return f"{mantissa}e{exp[0]}{exp[1:].zfill(3)}"
+
+    order = [(i, j) for j in range(n) for i in range(n)]  # column-major, matches cov_of_2x2
+
+    lines = ["CITIFILE A.01.01", f"NAME {name}", f"VAR FREQ MAG {nfreq}"]
+    for i, j in order:
+        lines.append(f"DATA S[{i + 1},{j + 1}] RI")
+        lines.append(f"DATA U[{i + 1},{j + 1}] RI")
+
+    lines.append("VAR_LIST_BEGIN")
+    lines.extend(fmt(f) for f in freq)
+    lines.append("VAR_LIST_END")
+
+    for idx, (i, j) in enumerate(order):
+        k = 2 * idx
+        lines.append("BEGIN")
+        lines.extend(f"{fmt(v.real)},{fmt(v.imag)}" for v in s[:, i, j])
+        lines.append("END")
+
+        lines.append("BEGIN")
+        lines.extend(
+            f"{fmt(np.sqrt(cov[f, k, k]))},{fmt(np.sqrt(cov[f, k + 1, k + 1]))}"
+            for f in range(nfreq)
+        )
+        lines.append("END")
+
+    with open(filename, "w", newline="") as fh:
+        fh.write("\r\n".join(lines) + "\r\n")
+
+
 def inv_propagate_all_contributors(contribs_A, contribs_B, A_T, B_T, k,mid_S=None):
     """
     Two-port inverse propagation with contributors on BOTH ports and a
