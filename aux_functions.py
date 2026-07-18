@@ -175,6 +175,117 @@ def cov_of_2x2(M_uc):
     return np.asarray(munc.get_covariance(flat))
 
 
+def save_cov(cov, freq, filename, name="cov"):
+    """
+    Save a per-frequency covariance stack (as produced by cov_of_scalar /
+    cov_of_2x2, e.g. unc_open_p1, unc_network) to a .npz file together with
+    its frequency axis, for later use with load_cov / cov_to_std.
+
+    Parameters
+    ----------
+    cov : array_like, shape (nfreq, 2*n*n, 2*n*n)
+        Real-valued covariance stack, one matrix per frequency point.
+        A complex dtype with zero imaginary part (as produced when
+        accumulating into a ``np.zeros(..., dtype=complex)`` array) is
+        accepted and cast to real.
+    freq : array_like, shape (nfreq,)
+        Frequencies (Hz) matching the first axis of ``cov``.
+    filename : str or path-like
+        Output path; ``.npz`` is appended if missing.
+    name : str
+        Label stored alongside the data (e.g. "unc_open_p1").
+    """
+    cov = np.asarray(cov)
+    if np.iscomplexobj(cov):
+        if not np.allclose(cov.imag, 0):
+            raise ValueError("cov must be real-valued (a covariance matrix cannot have an imaginary part)")
+        cov = cov.real
+    freq = np.asarray(freq)
+    if cov.shape[0] != freq.shape[0]:
+        raise ValueError(f"cov and freq must have matching first axis, got {cov.shape[0]} vs {freq.shape[0]}")
+
+    filename = str(filename)
+    if not filename.endswith(".npz"):
+        filename += ".npz"
+    np.savez(filename, cov=cov, freq=freq, name=name)
+
+
+def load_cov(filename):
+    """
+    Load a covariance stack saved by save_cov.
+
+    Returns
+    -------
+    cov : np.ndarray, shape (nfreq, 2*n*n, 2*n*n)
+    freq : np.ndarray, shape (nfreq,)
+    name : str
+    """
+    filename = str(filename)
+    if not filename.endswith(".npz"):
+        filename += ".npz"
+    with np.load(filename) as data:
+        return data["cov"], data["freq"], str(data["name"])
+
+
+def cov_to_std(cov):
+    """
+    Convert a per-frequency covariance stack (as produced by cov_of_scalar /
+    cov_of_2x2, or round-tripped through save_cov/load_cov) into standard
+    uncertainties, combined as std_re + 1j*std_im per element -- the same
+    Re/Im convention used for S-parameters themselves. Only the diagonal of
+    each covariance matrix is used; correlations/off-diagonal terms are
+    dropped (same simplification as write_cti).
+
+    Parameters
+    ----------
+    cov : array_like, shape (nfreq, 2*n*n, 2*n*n)
+        n=1 -> scalar (cov_of_scalar output, e.g. unc_open_p1).
+        n=2 -> 2x2 matrix (cov_of_2x2 output, e.g. unc_network).
+
+    Returns
+    -------
+    std : np.ndarray
+        shape (nfreq,) for n=1, or (nfreq, n, n) for n>1, in the same
+        column-major element order as cov_of_2x2 (M00, M10, M01, M11, ...).
+    """
+    cov = np.asarray(cov)
+    if np.iscomplexobj(cov):
+        cov = cov.real
+    nfreq, m, _ = cov.shape
+    n2, rem = divmod(m, 2)
+    if rem:
+        raise ValueError(f"cov must have even-sized matrices (2*n*n), got size {m}")
+    n = int(round(n2 ** 0.5))
+    if n * n != n2:
+        raise ValueError(f"cov size {m} is not of the form 2*n*n")
+
+    diag = np.diagonal(cov, axis1=1, axis2=2)          # (nfreq, 2*n*n)
+    std = np.sqrt(np.clip(diag[:, 0::2], 0, None)) + 1j * np.sqrt(np.clip(diag[:, 1::2], 0, None))
+
+    if n == 1:
+        return std[:, 0]
+    return std.reshape(nfreq, n, n, order="F")
+
+
+def sample_complex_normal(mean, std):
+    """
+    Draw complex Gaussian samples with independent real/imag parts.
+
+    Parameters
+    ----------
+    mean : array_like, complex
+        Nominal (complex) values, e.g. ``open_p1.s[:, 0, 0]``.
+    std : array_like, complex
+        Per-element standard uncertainties encoded as std_re + 1j*std_im --
+        the convention produced by cov_to_std. Re and Im are sampled
+        independently since np.random.normal's scale must be real.
+    """
+    mean = np.asarray(mean)
+    std = np.asarray(std)
+    return (np.random.normal(mean.real, std.real)
+            + 1j * np.random.normal(mean.imag, std.imag))
+
+
 def write_cti(ntwk, cov, filename, name="DATA"):
     """
     Write an rf.Network together with its per-frequency covariance matrix
